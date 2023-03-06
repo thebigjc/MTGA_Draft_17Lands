@@ -1,6 +1,8 @@
 import functools
 import json
 from itertools import combinations
+import traceback
+from ryanbot import RyanBot
 
 def CompareRatings(a, b):
     try:
@@ -692,6 +694,8 @@ def ManaBase(deck):
     return combined_deck
     
 def SuggestDeck(taken_cards, color_options, limits):
+    ryanbot = RyanBot()
+
     minimum_creature_count = 13
     minimum_noncreature_count = 6
     maximum_card_count = 23
@@ -746,12 +750,15 @@ def SuggestDeck(taken_cards, color_options, limits):
                         #print("Color: %s, Rating: %s" % (color, decks[color]["rating"]))
                         decks[color]["deck_cards"].extend(ManaBase(deck))
         
+        decks["RyanBot"] = ryanbot.suggest_deck(taken_cards)
+
         sorted_colors  = sorted(decks, key=lambda x: decks[x]["rating"], reverse=True)
         #print(sorted_colors)
         for color in sorted_colors:
             sorted_decks[color] = decks[color]
     except Exception as error:
         print("SuggestDeck Error: %s" % error)
+        print(traceback.format_exc())
 
     return sorted_decks
     
@@ -762,7 +769,8 @@ def BuildDeck(deck_type, cards, color, limits, minimum_noncreature_count):
     cmc_average = deck_type["cmc_average"]
     recommended_creature_count = deck_type["recommended_creature_count"]
     used_list = []
-    sideboard_list = cards[:] #Copy by value
+    print("Cards:", len(cards))
+    sideboard_list = list(cards) #Copy by value
     try:
         #filter cards using the correct deck's colors
         filtered_cards = CardColorFilter(cards, color, limits)
@@ -847,6 +855,7 @@ def BuildDeck(deck_type, cards, color, limits, minimum_noncreature_count):
         
         #Identify sideboard cards:
         for card in used_list:
+            print("Removing sideboard:", card)
             try:
                 sideboard_list.remove(card)
             except Exception as error:

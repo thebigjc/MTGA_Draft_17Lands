@@ -1,6 +1,6 @@
 {
     "features": {
-        "hotkey_enabled": true,
+        "hotkey_enabled": false,
         "images_enabled": true
     },
     "settings": {

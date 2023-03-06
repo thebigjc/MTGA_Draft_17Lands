@@ -5,12 +5,19 @@ import numpy as np
 import tensorflow as tf
 import os
 import pickle
+from mtg.ml.utils import load_model
+from mtg.ml.display import build_decks
+from copy import deepcopy
 
-MODEL_LOCATION = "Models/vow_emb_deep"
+MODEL_LOCATION = "Models/one_emb_deep"
+BUILD_MODEL = "Models/one_emb_build_model"
+EXPANSION = "Models/one.pkl"
 
 class RyanBot:
     def __init__(self):
         self.model = self.load_model_and_attrs(MODEL_LOCATION)
+        self.build_model, _ = load_model(BUILD_MODEL, "cards.pkl")
+        self.expansion = pickle.load(open(EXPANSION, "rb"))
         self.clear_callback()
         # populate the predictions for every card in the set at p1p1 on init
         self.run_prediction(1, 1, full_set=True)
@@ -96,9 +103,9 @@ class RyanBot:
     def get_card_idx(self, card_name):
         name = card_name.lower().split("//")[0].strip()
         return self.name_to_idx[name]
-    def load_model_and_attrs(self, location):
+    def load_model_and_attrs(self, location, data_pkl="attrs.pkl"):
         model_loc = os.path.join(location, "model")
-        data_loc = os.path.join(location, "attrs.pkl")
+        data_loc = os.path.join(location, data_pkl)
         model = tf.saved_model.load(model_loc)
         with open(data_loc, "rb") as f:
             attrs = pickle.load(f)
@@ -108,3 +115,61 @@ class RyanBot:
         self.idx_to_name = attrs['idx_to_name']
         self.name_to_idx = {v:k for k,v in self.idx_to_name.items()}
         return model
+    def suggest_deck(self, taken_cards):
+        pool = np.zeros(self.n_cards, dtype=np.float32)
+        for tc in taken_cards:
+            name = tc["name"]
+            idx = self.get_card_idx(name)
+            pool[idx] += 1
+
+        pool = np.expand_dims(pool, 0)
+        basics, spells, _ = build_decks(
+            self.build_model, pool.copy(), cards=self.expansion.cards.copy()
+        )
+
+        print(basics)
+        print(spells)
+
+        deck = []
+        sideboard = []
+        deck_cards = set()
+
+        sideboard = list(taken_cards)
+        
+        for tc in taken_cards:
+            name = tc["name"]
+            if name in deck_cards:
+                continue
+
+            deck_cards.add(name)
+            print("Adding:", name)
+            idx = self.get_card_idx(name)
+            count = spells[0, idx]
+            if count > 0:
+                card = deepcopy(tc)
+                card["count"] = count
+                deck.append(card)
+                while count > 0:
+                    sideboard.remove(tc)
+                    count -= 1
+        
+        mana_types = [{"name": "Plains", "types" : "Land", "cmc" : 0.0, "colors" : "W", "count" : 0},
+            {"name": "Island", "types" : "Land", "cmc" : 0.0, "colors" : "W", "count" : 0},
+            {"name": "Swamp", "types" : "Land", "cmc" : 0.0, "colors" : "W", "count" : 0},
+            {"name": "Mountain", "types" : "Land", "cmc" : 0.0, "colors" : "W", "count" : 0},
+            {"name": "Forest", "types" : "Land", "cmc" : 0.0, "colors" : "W", "count" : 0}]
+
+        for i in range(len(mana_types)):
+            cnt = basics[0, i]
+            if cnt > 0:
+                land = mana_types[i]
+                land["count"] = cnt
+                deck.append(land)
+
+        bot_deck = dict()
+        bot_deck["deck_cards"] = deck
+        bot_deck["sideboard_cards"] = sideboard
+        bot_deck["rating"] = 10000
+        bot_deck["type"] = "Bot"
+
+        return bot_deck

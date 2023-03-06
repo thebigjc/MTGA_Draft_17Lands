@@ -72,6 +72,7 @@ import getopt
 import sys
 import copy
 import io
+import traceback
 import file_extractor as FE
 import card_logic as CL
 from ryanbot import RyanBot
@@ -381,6 +382,9 @@ class LogScanner:
                         
                 
                         self.draft_type = draft_types_dict[event_type]
+                        if event_set == "Y23ONE":
+                            event_set = "ONE"
+                        
                         self.draft_set = event_set
                         self.pick_offset = offset 
                         self.pack_offset = offset
@@ -492,6 +496,7 @@ class LogScanner:
                         except Exception as error:
                             error_string = "DraftPickedSearchPremierV1 Error: %s" % error
                             print(error_string)
+                            print(traceback.format_exc())
                             LogEntry(self.diag_log_file, error_string, self.diag_log_enabled)         
         except Exception as error:
             error_string = "DraftPickedSearchPremierV1 Error: %s" % error
@@ -651,6 +656,7 @@ class LogScanner:
 
     
     def DraftPickedSearchPremierV2(self):
+        print(self.set_data)
         offset = self.pick_offset
         draft_data = object()
         draft_string = "[UnityCrossThreadLogger]==> Draft.MakeHumanDraftPick "
@@ -1213,6 +1219,7 @@ class WindowUI:
         except Exception as error:
             error_string = "UpdateSuggestTable Error: %s" % error
             print(error_string)
+            print(traceback.format_exc())
             LogEntry(self.diag_log_file, error_string, self.diag_log_enabled)
             
     def UpdateDeckStatsTable(self, taken_cards, filter_type):
@@ -1633,6 +1640,8 @@ class WindowUI:
                     rating_label = "%s %s (Rating:%d)" % (color, suggested_decks[color]["type"], suggested_decks[color]["rating"])
                     deck_color_options[rating_label] = color
                     choices.append(rating_label)
+            else:
+                print("No suggested decks")
                 
             deck_colors_label = Label(popup, text="Deck Colors:", anchor = 'e', font='Helvetica 9 bold')
             
