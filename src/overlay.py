@@ -759,7 +759,7 @@ class Overlay(ScaledWindow):
                 recommendations = self.ml_recommender.get_recommendations(card_list, self.draft.set_data)
             
             result_class = CardResult(
-                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick)
+                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick, recommendations)
             result_list = result_class.return_results(
                 card_list, filtered_colors, fields.values(), recommendations)
             
@@ -2550,6 +2550,14 @@ class Overlay(ScaledWindow):
                 row=row_count, column=0, columnspan=1, sticky="nsew",
                 padx=row_padding_x, pady=row_padding_y)
             save_screenshot_checkbox.grid(
+                row=row_count, column=1, columnspan=1, sticky="nsew",
+                padx=row_padding_x, pady=row_padding_y)
+            row_count += 1
+
+            ml_recommendation_label.grid(
+                row=row_count, column=0, columnspan=1, sticky="nsew",
+                padx=row_padding_x, pady=row_padding_y)
+            ml_recommendation_checkbox.grid(
                 row=row_count, column=1, columnspan=1, sticky="nsew",
                 padx=row_padding_x, pady=row_padding_y)
             row_count += 1

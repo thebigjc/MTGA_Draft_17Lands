@@ -1,5 +1,5 @@
 numpy==2.0.0
-Pillow==10.4.0
+Pillow==11.3.0
 pydantic==2.8.2
 pynput==1.7.6
 pytest==8.2.0

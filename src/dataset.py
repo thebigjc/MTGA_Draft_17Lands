@@ -19,6 +19,19 @@ import ijson
 
 logger = create_logger()
 
+OTJ_BASIC_LANDS = {
+    "90623" : "Plains",
+    "90624" : "Plains", 
+    "90625" : "Island", 
+    "90626" : "Island", 
+    "90627" : "Swamp", 
+    "90628" : "Swamp", 
+    "90629" : "Mountain", 
+    "90630" : "Mountain", 
+    "90631" : "Forest",
+    "90632" : "Forest",
+}
+
 class Dataset:
     def __init__(self, retrieve_unknown: bool = False):
         self._dataset = None
