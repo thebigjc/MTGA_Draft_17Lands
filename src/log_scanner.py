@@ -12,6 +12,7 @@ from src.logger import create_logger
 from src.set_metrics import SetMetrics
 from src.dataset import Dataset
 from src.ocr import OCR
+from src.recommendations import MLRecommender
 from src.utils import (
     process_json,
     json_find,
@@ -34,7 +35,7 @@ class Source(Enum):
 class ArenaScanner:
     '''Class that handles the processing of the information within Arena Player.log file'''
 
-    def __init__(self, filename, set_list, sets_location: str = constants.SETS_FOLDER, step_through: bool = False, retrieve_unknown: bool = False):
+    def __init__(self, filename, set_list, sets_location: str = constants.SETS_FOLDER, history: MLRecommender = None, step_through: bool = False, retrieve_unknown: bool = False):
         self.arena_file = filename
         self.set_list = set_list
         self.draft_log = logging.getLogger(LOG_TYPE_DRAFT)
@@ -64,6 +65,7 @@ class ArenaScanner:
         self.data_source = "None"
         self.event_string = ""
         self.draft_label = ""
+        self.history = history
 
     def set_arena_file(self, filename):
         '''Public function that's used for storing the location of the Player.log file'''
@@ -120,6 +122,7 @@ class ArenaScanner:
         self.current_picked_pick = 0
         self.data_source = "None"
         self.draft_label = ""
+        self.history.reset()
 
     def draft_start_search(self):
         '''Search for the string that represents the start of a draft'''
@@ -662,9 +665,14 @@ class ArenaScanner:
                             pack_cards = []
                             try:
                                 cards = json_find("DraftPack", draft_data)
+                                picks = json_find("PickedCards", draft_data)
 
                                 for card in cards:
                                     pack_cards.append(str(card))
+
+                                if picks:
+                                    self.history.add_pick_history(picks[-1], self.set_data)
+                                self.history.add_pack_history(pack_cards, self.set_data)
 
                                 pack = int(json_find("PackNumber", draft_data)) + 1
                                 pick = int(json_find("PickNumber", draft_data)) + 1

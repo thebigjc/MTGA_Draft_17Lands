@@ -33,6 +33,7 @@ from src.card_logic import (
     get_deck_metrics,
     suggest_deck,
 )
+from src.recommendations import MLRecommender
 
 try:
     import win32api
@@ -441,9 +442,14 @@ class Overlay(ScaledWindow):
 
         self.extractor = FileExtractor(self.data_file)
         self.limited_sets = LimitedSets().retrieve_limited_sets()
-        self.draft = ArenaScanner(
-            self.arena_file, self.limited_sets, step_through=self.step_through)
+        
+        self.ml_recommender = None
+        if self.configuration.settings.ml_model_path:
+            self.ml_recommender = MLRecommender(self.configuration.settings.ml_model_path)
 
+        self.draft = ArenaScanner(
+            self.arena_file, self.limited_sets, history = self.ml_recommender, step_through=self.step_through)
+        
         self.trace_ids = []
         self.tier_data = {}
 
@@ -513,6 +519,7 @@ class Overlay(ScaledWindow):
         self.draft_log_checkbox_value = tkinter.IntVar(self.root)
         self.p1p1_ocr_checkbox_value = tkinter.IntVar(self.root)
         self.save_screenshot_checkbox_value = tkinter.IntVar(self.root)
+        self.ml_recommendation_checkbox_value = tkinter.IntVar(self.root)
         self.taken_alsa_checkbox_value = tkinter.IntVar(self.root)
         self.taken_ata_checkbox_value = tkinter.IntVar(self.root)
         self.taken_gpwr_checkbox_value = tkinter.IntVar(self.root)
@@ -537,6 +544,9 @@ class Overlay(ScaledWindow):
         self.taken_type_instant_sorcery_checkbox_value.set(True)
         self.taken_type_other_checkbox_value = tkinter.IntVar(self.root)
         self.taken_type_other_checkbox_value.set(True)
+
+        self.ml_model_path = tkinter.StringVar(self.root)
+        self.ml_model_path.set(self.configuration.settings.ml_model_path)
 
         self.column_2_selection = tkinter.StringVar(self.root)
         self.column_2_list = self.main_options_dict.keys()
@@ -717,7 +727,7 @@ class Overlay(ScaledWindow):
 
         if self.configuration.features.hotkey_enabled:
             self.__start_hotkey_listener()
-
+        
     def close_overlay(self):
         if self.log_check_id is not None:
             self.root.after_cancel(self.log_check_id)
@@ -893,11 +903,15 @@ class Overlay(ScaledWindow):
     def __update_pack_table(self, card_list, filtered_colors, fields):
         '''Update the table that lists the cards within the current pack'''
         try:
+            recommendations = None
+            if "ml" in fields.values():
+                recommendations = self.ml_recommender.get_recommendations(card_list)
+            
             result_class = CardResult(
-                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick)
+                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick, recommendations)
             result_list = result_class.return_results(
                 card_list, filtered_colors, fields.values())
-
+            
             # clear the previous rows
             for row in self.pack_table.get_children():
                 self.pack_table.delete(row)
@@ -2427,7 +2441,13 @@ class Overlay(ScaledWindow):
                                              variable=self.save_screenshot_checkbox_value,
                                              onvalue=1,
                                              offvalue=0)
-
+            
+            ml_recommendation_label = Label(popup, text="Enable ML Recommendation:",
+                                    style="MainSectionsBold.TLabel", anchor="e")
+            ml_recommendation_checkbox = Checkbutton(popup,
+                                             variable=self.ml_recommendation_checkbox_value,
+                                             onvalue=1,
+                                             offvalue=0)
             card_colors_label = Label(
                 popup, text="Enable Row Colors:", style="MainSectionsBold.TLabel", anchor="e")
             card_colors_checkbox = Checkbutton(popup,
@@ -2685,8 +2705,31 @@ class Overlay(ScaledWindow):
                 padx=row_padding_x, pady=row_padding_y)
             row_count += 1
 
+            ml_recommendation_label.grid(
+                row=row_count, column=0, columnspan=1, sticky="nsew",
+                padx=row_padding_x, pady=row_padding_y)
+            ml_recommendation_checkbox.grid(
+                row=row_count, column=1, columnspan=1, sticky="nsew",
+                padx=row_padding_x, pady=row_padding_y)
+            row_count += 1
+
             default_button.grid(row=row_count, column=0,
                                 columnspan=2, sticky="nsew")
+            
+            ml_model_label = Label(popup,
+                text="ML Model Path:",
+                style="MainSectionsBold.TLabel",
+                anchor="e")
+            ml_model_path_entry = Entry(popup)
+            ml_model_path_entry.insert(0, self.configuration.settings.ml_model_path)
+            ml_model_path_button = Button(popup, 
+                text="Browse...", 
+                command=lambda: self.__select_model_file(ml_model_path_entry))
+
+            ml_model_label.grid(row=row_count, column=0, sticky="nsew")
+            ml_model_path_entry.grid(row=row_count, column=1, sticky="nsew")
+            ml_model_path_button.grid(row=row_count, column=2, sticky="nsew")
+            row_count += 1
 
             self.__control_trace(True)
 
@@ -3059,6 +3102,8 @@ class Overlay(ScaledWindow):
                     "w", self.__update_settings_callback)),
                 (self.save_screenshot_checkbox_value, lambda: self.save_screenshot_checkbox_value.trace(
                     "w", self.__update_settings_callback)),
+                (self.ml_recommendation_checkbox_value, lambda: self.ml_recommendation_checkbox_value.trace(
+                    "w", self.__update_settings_callback)),
                 (self.filter_format_selection, lambda: self.filter_format_selection.trace(
                     "w", self.__update_source_callback)),
                 (self.result_format_selection, lambda: self.result_format_selection.trace(
@@ -3105,6 +3150,8 @@ class Overlay(ScaledWindow):
                     "w", self.__update_taken_table)),
                 (self.taken_type_other_checkbox_value, lambda: self.taken_type_other_checkbox_value.trace(
                     "w", self.__update_taken_table)),
+                (self.ml_model_path, lambda: self.ml_model_path.trace(
+                    "w", self.__update_settings_callback)),
             ]
 
             if enabled:
@@ -3188,6 +3235,13 @@ class Overlay(ScaledWindow):
             toggle_widget(self.separator_frame_draft, True)
         else:
             toggle_widget(self.separator_frame_draft, False)
+
+
+    def __select_model_file(self, entry_widget):
+        directory = filedialog.askdirectory()
+        if directory:
+            entry_widget.delete(0, tkinter.END)
+            entry_widget.insert(0, directory)
 
 
 class CreateCardToolTip(ScaledWindow):

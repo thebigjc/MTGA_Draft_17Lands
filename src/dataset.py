@@ -13,6 +13,19 @@ from src.constants import (
     WIN_RATE_FIELDS_DICT
 )
 
+OTJ_BASIC_LANDS = {
+    "90623" : "Plains",
+    "90624" : "Plains", 
+    "90625" : "Island", 
+    "90626" : "Island", 
+    "90627" : "Swamp", 
+    "90628" : "Swamp", 
+    "90629" : "Mountain", 
+    "90630" : "Mountain", 
+    "90631" : "Forest",
+    "90632" : "Forest",
+}
+
 class Dataset:
     def __init__(self, retrieve_unknown: bool = False):
         self._dataset = None
@@ -195,6 +208,8 @@ class Dataset:
             string_id = str(arena_id)
             if string_id in self._dataset["card_ratings"]:
                 name_list.append(self._dataset["card_ratings"][string_id][DATA_FIELD_NAME])
+            elif string_id in OTJ_BASIC_LANDS:
+                name_list.append(OTJ_BASIC_LANDS[string_id])
                 
         return name_list
         

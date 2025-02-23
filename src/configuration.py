@@ -56,6 +56,7 @@ class Settings(BaseModel):
     taken_iwd_enabled: bool = False
     taken_wheel_enabled: bool = False
     arena_log_location: str = ""
+    ml_model_path: str = "model"
 
     @field_validator('deck_filter')
     @classmethod
