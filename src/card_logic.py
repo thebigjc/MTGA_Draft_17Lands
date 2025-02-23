@@ -34,7 +34,7 @@ class CardResult:
         self.configuration = configuration
         self.pick_number = pick_number
 
-    def return_results(self, card_list, colors, fields):
+    def return_results(self, card_list, colors, fields, recommendations=None):
         """This function processes a card list and returns a list with the requested field results"""
         return_list = []
         wheel_sum = 0
@@ -56,6 +56,8 @@ class CardResult:
                     elif option == constants.DATA_FIELD_WHEEL:
                         selected_card["results"][count] = self.__process_wheel_normalized(
                             card, wheel_sum)
+                    elif option == constants.DATA_FIELD_ML_RECOMMENDATION:
+                        selected_card["results"][count] = recommendations[card["name"]]
                     elif option in card:
                         selected_card["results"][count] = card[option]
                     else:

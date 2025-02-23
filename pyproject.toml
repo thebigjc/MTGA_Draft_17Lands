@@ -1,0 +1,15 @@
+[project]
+name = "mtga-draft-17lands"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy==2.0.0",
+    "onnxruntime>=1.20.1",
+    "pillow==10.4.0",
+    "pydantic==2.8.2",
+    "pynput==1.7.6",
+    "pytest==8.2.0",
+    "requests==2.32.3",
+]
