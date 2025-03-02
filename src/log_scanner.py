@@ -378,6 +378,7 @@ class ArenaScanner:
                                 self.initial_pack[pack_index] = pack_cards
 
                             self.pack_cards[pack_index] = pack_cards
+                            self.history.add_pack_history(pack_cards, pack, pick)
 
                             if (self.current_pack == 0) and (self.current_pick == 0):
                                 self.current_pack = pack
@@ -435,6 +436,8 @@ class ArenaScanner:
 
                             self.picked_cards[pack_index].append(card)
                             self.taken_cards.append(card)
+
+                            self.history.add_pick_history(card, pack, pick)
 
                             self.previous_picked_pack = pack
                             self.current_picked_pick = pick
@@ -496,6 +499,7 @@ class ArenaScanner:
                                 self.initial_pack[pack_index] = pack_cards
 
                             self.pack_cards[pack_index] = pack_cards
+                            self.history.add_pack_history(pack_cards, pack, pick)
 
                             self.current_pack = pack
                             self.current_pick = pick
@@ -558,6 +562,7 @@ class ArenaScanner:
                                 self.initial_pack[pack_index] = pack_cards
 
                             self.pack_cards[pack_index] = pack_cards
+                            self.history.add_pack_history(pack_cards, pack, pick)
 
                             self.current_pack = pack
                             self.current_pick = pick
@@ -607,6 +612,7 @@ class ArenaScanner:
                             pack = int(param_data["packNumber"])
                             pick = int(param_data["pickNumber"])
                             card = param_data["cardId"]
+                            self.history.add_pick_history(card, pack, pick)
 
                             pack_index = (pick - 1) % 8
 
@@ -671,8 +677,8 @@ class ArenaScanner:
                                     pack_cards.append(str(card))
 
                                 if picks:
-                                    self.history.add_pick_history(picks[-1], self.set_data)
-                                self.history.add_pack_history(pack_cards, self.set_data)
+                                    self.history.add_pick_history(picks[-1], pack, pick)
+                                self.history.add_pack_history(pack_cards, pack, pick)
 
                                 pack = int(json_find("PackNumber", draft_data)) + 1
                                 pick = int(json_find("PickNumber", draft_data)) + 1
@@ -805,7 +811,7 @@ class ArenaScanner:
                                 self.initial_pack[pack_index] = pack_cards
 
                             self.pack_cards[pack_index] = pack_cards
-
+                            self.history.add_pack_history(pack_cards, pack, pick)
                             if (self.current_pack == 0) and (self.current_pick == 0):
                                 self.current_pack = pack
                                 self.current_pick = pick
@@ -863,6 +869,8 @@ class ArenaScanner:
 
                             self.picked_cards[pack_index].append(card)
                             self.taken_cards.append(card)
+
+                            self.history.add_pick_history(card, pack, pick)
 
                             self.previous_picked_pack = pack
                             self.current_picked_pick = pick
@@ -924,6 +932,7 @@ class ArenaScanner:
                                 self.initial_pack[pack_index] = pack_cards
 
                             self.pack_cards[pack_index] = pack_cards
+                            self.history.add_pack_history(pack_cards, pack, pick)
 
                             self.current_pack = pack
                             self.current_pick = pick

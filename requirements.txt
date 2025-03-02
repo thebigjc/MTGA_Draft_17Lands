@@ -5,3 +5,4 @@ pynput==1.7.6
 pytest==8.2.0
 Requests==2.32.3
 onnxruntime==1.20.1
+ijson==3.3.0
