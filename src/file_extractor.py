@@ -957,6 +957,7 @@ class FileExtractor:
             output_file = "_".join(
                 (self.selected_sets.seventeenlands[0], self.draft, self.user_group, constants.SET_FILE_SUFFIX))
             location = os.path.join(constants.SETS_FOLDER, output_file)
+            self.combined_data["meta"]["set_code"] = self.selected_sets.seventeenlands[0]
 
             with open(location, 'w', encoding="utf-8", errors="replace") as file:
                 json.dump(self.combined_data, file)

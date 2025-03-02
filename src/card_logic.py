@@ -56,7 +56,7 @@ class CardResult:
                     elif option == constants.DATA_FIELD_WHEEL:
                         selected_card["results"][count] = self.__process_wheel_normalized(
                             card, wheel_sum)
-                    elif option == constants.DATA_FIELD_ML_RECOMMENDATION:
+                    elif option == constants.DATA_FIELD_ML_RECOMMENDATION and recommendations:
                         selected_card["results"][count] = recommendations[card["name"]]
                     elif option in card:
                         selected_card["results"][count] = card[option]
@@ -66,7 +66,7 @@ class CardResult:
 
                 return_list.append(selected_card)
             except Exception as error:
-                logger.error(error)
+                logger.error(error, exc_info=True)
         return return_list
 
     def __process_tier(self, card, option):

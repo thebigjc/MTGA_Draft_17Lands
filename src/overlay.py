@@ -905,12 +905,12 @@ class Overlay(ScaledWindow):
         try:
             recommendations = None
             if "ml" in fields.values():
-                recommendations = self.ml_recommender.get_recommendations(card_list)
+                recommendations = self.ml_recommender.get_recommendations(card_list, self.draft.set_data)
             
             result_class = CardResult(
-                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick, recommendations)
+                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick)
             result_list = result_class.return_results(
-                card_list, filtered_colors, fields.values())
+                card_list, filtered_colors, fields.values(), recommendations)
             
             # clear the previous rows
             for row in self.pack_table.get_children():
@@ -947,7 +947,7 @@ class Overlay(ScaledWindow):
             self.pack_table.bind("<<TreeviewSelect>>", lambda event: self.__process_table_click(
                 event, table=self.pack_table, card_list=card_list, selected_color=filtered_colors, fields=fields))
         except Exception as error:
-            logger.error(error)
+            logger.error(error, exc_info=True)
 
     def __update_missing_table(self, missing_cards, picked_cards, filtered_colors, fields):
         '''Update the table that lists the cards that are missing from the current pack'''
@@ -1027,6 +1027,7 @@ class Overlay(ScaledWindow):
                       "Column5": self.main_options_dict[self.column_5_selection.get()],
                       "Column6": self.main_options_dict[self.column_6_selection.get()],
                       "Column7": self.main_options_dict[self.column_7_selection.get()], }
+            
 
             if entry_box and card_list:
                 added_card = entry_box.get()
@@ -1037,10 +1038,14 @@ class Overlay(ScaledWindow):
                     if cards:
                         self.compare_list.append(cards[0])
 
+            recommendations = None
+            if "ml" in fields.values():
+                recommendations = self.ml_recommender.get_recommendations(self.compare_list, self.draft.set_data)
+
             result_class = CardResult(
                 self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick)
             result_list = result_class.return_results(
-                self.compare_list, filtered_colors, fields.values())
+                self.compare_list, filtered_colors, fields.values(), recommendations)
 
             self.compare_table.delete(*self.compare_table.get_children())
 
