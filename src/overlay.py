@@ -2447,12 +2447,6 @@ class Overlay(ScaledWindow):
                                              onvalue=1,
                                              offvalue=0)
             
-            ml_recommendation_label = Label(popup, text="Enable ML Recommendation:",
-                                    style="MainSectionsBold.TLabel", anchor="e")
-            ml_recommendation_checkbox = Checkbutton(popup,
-                                             variable=self.ml_recommendation_checkbox_value,
-                                             onvalue=1,
-                                             offvalue=0)
             card_colors_label = Label(
                 popup, text="Enable Row Colors:", style="MainSectionsBold.TLabel", anchor="e")
             card_colors_checkbox = Checkbutton(popup,
@@ -2706,14 +2700,6 @@ class Overlay(ScaledWindow):
                 row=row_count, column=0, columnspan=1, sticky="nsew",
                 padx=row_padding_x, pady=row_padding_y)
             save_screenshot_checkbox.grid(
-                row=row_count, column=1, columnspan=1, sticky="nsew",
-                padx=row_padding_x, pady=row_padding_y)
-            row_count += 1
-
-            ml_recommendation_label.grid(
-                row=row_count, column=0, columnspan=1, sticky="nsew",
-                padx=row_padding_x, pady=row_padding_y)
-            ml_recommendation_checkbox.grid(
                 row=row_count, column=1, columnspan=1, sticky="nsew",
                 padx=row_padding_x, pady=row_padding_y)
             row_count += 1
