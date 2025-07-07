@@ -759,7 +759,7 @@ class Overlay(ScaledWindow):
                 recommendations = self.ml_recommender.get_recommendations(card_list, self.draft.set_data)
             
             result_class = CardResult(
-                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick, recommendations)
+                self.set_metrics, self.tier_data, self.configuration, self.draft.current_pick)
             result_list = result_class.return_results(
                 card_list, filtered_colors, fields.values(), recommendations)
             

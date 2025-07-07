@@ -1,117 +1,3 @@
-<<<<<<< HEAD
-from src.draft_inference import DraftModelWrapper
-from src.dataset import Dataset
-from typing import List, Dict
-
-class History:
-    def __init__(self):
-        self.pack = []
-        self.pick = -1
-
-class MLRecommender:
-    def __init__(self, model_path: str):
-        self.model_path = model_path
-        self.model = DraftModelWrapper(model_path)
-        self.history = {}
-    def reset(self):
-        self.tokens = []
-            
-    def add_pack_history(self, pack_cards: List[int], pack: int, pick: int):
-        p_p = (pack, pick)
-        if p_p not in self.history:
-            h = History()
-            h.pack = pack_cards
-            self.history[p_p] = h
-        else:
-            h = self.history[p_p]
-            if h.pack_cards != pack_cards:
-                print(f"Updating pack history for {p_p}")
-                h.pack = pack_cards
-                
-    def add_pick_history(self, card: int, pack: int, pick: int):
-        p_p = (pack, pick)
-        if p_p not in self.history:
-            h = History()
-            h.pick = card
-            self.history[p_p] = h
-        else:
-            h = self.history[p_p]
-            if h.pick != card:
-                print(f"Updating card history for {p_p}")
-                h.pick = card
-
-    def pick_tokens(self, set_data: Dataset):
-        tokens = self._token_prefix()
-
-        for p_p in sorted(self.history.keys()):
-            h = self.history[p_p]
-            if not h.pack:
-                print(f"No pack history for {p_p}")
-                continue
-
-            tokens.append("[PACK_CARDS]")
-            pack_cards = [name.replace(" ", "_") for name in set_data.get_names_by_id(h.pack)]
-            tokens.extend(pack_cards)
-            tokens.append("[PACK_CARDS_END]")
-
-            tokens.append("[PICK]")
-            
-
-            if h.pick != -1:
-                pick_name = [name.replace(" ", "_") for name in set_data.get_names_by_id([h.pick])]
-                tokens.extend(pick_name)
-                tokens.append("[PICK_END]")
-
-        return tokens
-
-    def _token_prefix(self):
-        tokens = [
-            "[DRAFT_START]",
-            "[EXPANSION]", 
-            self.model.expansion_code, # TODO: Get expansion code from current draft
-            "[EXPANSION_END]",
-            "[EVENT_TYPE]", "PremierDraft", "[EVENT_TYPE_END]",
-            "[RANK]", "mythic", "7", "[RANK_END]"
-        ]
-        
-        return tokens
-    
-    def _get_current_pack_cards(self, card_list: List[Dict]) -> List[str]:
-        return [card["name"].replace(" ", "_") for card in card_list]
-    
-    def compare_tokens(self, card_list: List[Dict]) -> List[str]:
-        tokens = self._token_prefix()
-        tokens.append("[PACK_CARDS]")
-        tokens.extend(card_list)
-        # Append basic lands until we reach the first pick
-        # -2 because we have the [PACK_CARDS_END] and [PICK] tokens
-        while len(tokens) < self.model.pick_positions[0] -2:
-            tokens.append("Plains")
-
-        tokens.append("[PACK_CARDS_END]")
-        tokens.append("[PICK]")
-
-        return tokens
-    
-    def get_recommendations(self, card_list: List[Dict], set_data: Dataset) -> List[Dict]:
-        current_pack_cards = self._get_current_pack_cards(card_list)
-
-        # If the current pack is empty, return an empty list
-        if len(current_pack_cards) == 0:
-            return []
-        
-        if len(self.history) == 0:
-            tokens = self.compare_tokens(current_pack_cards)
-        else:            
-            tokens = self.pick_tokens(set_data)
-            if tokens[-1] != "[PICK]":
-                return {}
-
-        # Get model predictions
-        predictions = self.model.get_top_k_predictions(tokens, k=len(current_pack_cards))
-                
-        return predictions 
-=======
 import numpy as np
 import json
 import onnxruntime as ort
@@ -119,6 +5,7 @@ from src.dataset import Dataset
 from typing import List, Dict, Tuple, Callable
 import os.path
 from collections import defaultdict
+from src.utils import Result
 
 class History:
     def __init__(self):
@@ -699,7 +586,13 @@ class MLRecommender:
         return tokens
     
     def recommend_deck(self, card_list: List[Dict], basic_lands: Dict[str, Dict], make_land_card: Callable[[str, Dict[str, Dict], int], Dict]) -> List[Dict]:
-        card_map = {card["name"].replace(" ", "_"): card for card in card_list}
+        # Create a lookup that handles both spaced and underscore variants of card names
+        card_map = {}
+        for card in card_list:
+            name_spaced = card["name"]
+            name_underscore = name_spaced.replace(" ", "_")
+            card_map[name_spaced] = card
+            card_map[name_underscore] = card
         deck = self.build_model.predict(card_list)
         recommended_deck = []
         lands = []
@@ -753,7 +646,7 @@ if __name__ == '__main__':
     set_data = Dataset()
     # Using a test dataset file
     result = set_data.open_file("tests/data/FIN_PremierDraft_Data_Test.json")
-    if result != "valid":
+    if result != Result.VALID:
         print(f"Failed to load dataset. Result: {result}")
         exit()
 
@@ -819,5 +712,105 @@ if __name__ == '__main__':
     else:
         print("No recommendations were returned for P1P2.")
 
-    print("\nDraft Model Test Finished.") 
->>>>>>> 5d8ccde (REFAC: Restructure model and draft inference components)
+    print("\nDraft Model Test Finished.")
+
+    # --- Test Last Pick (P3P14) ---
+    print("\n--- Testing Last Pick of Draft (Pick 42) ---")
+    
+    # Re-initialize recommender for a clean test
+    recommender = MLRecommender(model_path="model")
+    print("Recommender re-initialized for last-pick test.")
+
+    if len(picks_data) < 42:
+        print("Not enough pick data in test file for a full draft test (requires 42 picks). Skipping last-pick test.")
+    else:
+        # Simulate the first 41 picks to set up the test for the last pick
+        print("Simulating first 41 picks...")
+        for i in range(41):
+            pick_data = picks_data[i]
+            actual_pick_name = pick_data.get("pick", {}).get("name")
+            if not actual_pick_name:
+                print(f"Warning: Missing pick name for pick {i + 1}. Skipping this history entry.")
+                continue
+            
+            pick_id_list = set_data.get_ids_by_name([actual_pick_name])
+            if not pick_id_list:
+                print(f"Warning: Could not find ID for card '{actual_pick_name}' at pick {i + 1}. Skipping.")
+                continue
+                
+            pick_id = pick_id_list[0]
+            pack_num = (i // 14) + 1
+            pick_num_in_pack = (i % 14) + 1
+            recommender.add_pick_history(card=int(pick_id), pack=pack_num, pick=pick_num_in_pack)
+        
+        print("Simulated 41 picks successfully.")
+
+        # --- Test the 42nd pick (index 41) ---
+        print("\n--- Evaluating recommendations for the final pick (P3P14) ---")
+        p3p14_data = picks_data[41]
+        p3p14_pack_cards = p3p14_data.get("available", [])
+        p3p14_actual_pick = p3p14_data.get("pick", {}).get("name")
+        
+        print(f"Cards in pack for last pick: {[card['name'] for card in p3p14_pack_cards]}")
+        print(f"User's actual pick: {p3p14_actual_pick}")
+
+        # Get recommendations for the final pick
+        last_pick_recommendations = recommender.get_recommendations(p3p14_pack_cards, set_data)
+
+        print("\nRecommendations for Final Pick:")
+        if last_pick_recommendations:
+            sorted_recs = sorted(last_pick_recommendations.items(), key=lambda item: item[1], reverse=True)
+            for i, (card, prob) in enumerate(sorted_recs):
+                print(f"{i+1}: {card:<40} (Confidence: {prob:.2%})")
+            
+            # Add the final pick to history
+            last_pick_id = set_data.get_ids_by_name([p3p14_actual_pick])[0]
+            recommender.add_pick_history(card=int(last_pick_id), pack=3, pick=14)
+
+            # --- Test behavior after the draft is complete ---
+            print("\n--- Testing for recommendations after draft completion ---")
+            # At this point, 42 cards have been picked, and current_pick_num will be 42.
+            # This should trigger the "Invalid pick number" warning and return no recommendations.
+            after_draft_recommendations = recommender.get_recommendations(p3p14_pack_cards, set_data)
+            
+            print(f"Recommendations returned: {after_draft_recommendations}")
+            if not after_draft_recommendations:
+                print("SUCCESS: As expected, no recommendations were returned after the draft was complete.")
+            else:
+                print("FAILURE: Recommendations were returned for a completed draft, which is incorrect.")
+        else:
+            print("FAILURE: No recommendations were returned for the last pick. This could indicate an off-by-one error.")
+    
+    print("\nLast Pick Test Finished.") 
+
+    # --- Deck Building Test ---
+    print("\n--- Testing Deck Building from Full Draft Pool ---")
+
+    # Collect the names of all picks (limit to first 42 or less if file shorter)
+    draft_pool_cards = []
+    for i, pick_data in enumerate(picks_data[:42]):
+        pick_name = pick_data.get("pick", {}).get("name")
+        if not pick_name:
+            print(f"Warning: Missing pick name for pick {i + 1}, skipping.")
+            continue
+        draft_pool_cards.append({"name": pick_name})
+
+    if len(draft_pool_cards) < 40:
+        print("Not enough cards in draft pool to build a 40-card deck. Skipping deck build test.")
+    else:
+        deck_prediction = recommender.build_model.predict(draft_pool_cards)
+
+        # Print the deck prediction in a readable format
+        recommender.build_model.print_prediction(deck_prediction)
+
+        # Verify total deck size is 40 cards
+        nb_total = sum(len(scores) for scores in deck_prediction["predicted_deck"]["nonbasics"].values())
+        b_total = sum(len(scores) for scores in deck_prediction["predicted_deck"]["basics"].values())
+        total_size = nb_total + b_total
+
+        if total_size == 40:
+            print("SUCCESS: Deck builder produced a 40-card deck as expected.")
+        else:
+            print(f"FAILURE: Deck builder produced {total_size} cards (expected 40).")
+
+    print("\nDeck Building Test Finished.") 
