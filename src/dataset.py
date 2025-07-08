@@ -245,6 +245,8 @@ class Dataset:
                 name_list.append(self._dataset["card_ratings"][string_id][DATA_FIELD_NAME])
             elif string_id in self._local_data:
                 name_list.append(self._local_data[string_id][DATA_FIELD_NAME])
+            elif string_id in OTJ_BASIC_LANDS:
+                name_list.append(OTJ_BASIC_LANDS[string_id])
                 
         return name_list
         
@@ -281,6 +283,8 @@ class Dataset:
             
         # Make the name the key and the id the value
         transformed_dataset = {v[DATA_FIELD_NAME]: k for k, v in self._dataset["card_ratings"].items()}
+        # Add basic lands
+        transformed_dataset.update({v: k for k, v in OTJ_BASIC_LANDS.items()})
             
         for name in name_list:
             if name in transformed_dataset:

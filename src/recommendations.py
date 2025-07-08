@@ -7,6 +7,8 @@ import os.path
 from collections import defaultdict
 from src.utils import Result
 
+__all__ = ["History", "MLRecommender"]
+
 class History:
     def __init__(self):
         self.pack = []
@@ -380,62 +382,98 @@ class DeckBuilder:
 
 class DraftModelWrapper:
     def __init__(self, model_dir: str):
-        """
-        Initializes the helper by loading the ONNX model and metadata.
-        """
+        """Loads the ONNX model and its metadata."""
         model_path = os.path.join(model_dir, "model.onnx")
         metadata_path = os.path.join(model_dir, "metadata.json")
 
         self.session = ort.InferenceSession(model_path)
-        
-        with open(metadata_path, 'r') as f:
-            self.metadata = json.load(f)
-            
-        self.vocab = self.metadata['vocab']
-        self.ivocab = {v: k for k, v in self.vocab.items()} # Inverse vocab for decoding
-        self.max_seq_len = self.metadata['max_seq_len']
-        self.pick_positions = self.metadata['pick_positions']
-        
-        # Get special token IDs
-        self.pad_token_id = self.vocab.get('[PAD]', 0)
-        self.pack_cards_token_id = self.vocab.get('[PACK_CARDS]', -1)
-        self.pack_cards_end_token_id = self.vocab.get('[PACK_CARDS_END]', -1)
-        self.pick_cards_token_id = self.vocab.get('[PICK_CARDS]', -1)
-        
-        print("Draft Model Helper initialized successfully.")
 
-    def _prepare_input_sequence(self, picked_cards: List[str], pack_cards: List[str]) -> np.ndarray:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            self.metadata = json.load(f)
+
+        self.vocab          = self.metadata["vocab"]
+        self.ivocab         = {v: k for k, v in self.vocab.items()}
+        self.max_seq_len    = self.metadata["max_seq_len"]
+        self.expansion_code = self.metadata["expansion_code"]
+        
+        # ---- frequently-used special-token IDs ----
+        self.pad_token_id           = self.vocab["<pad>"]
+        self.pack_cards_token_id    = self.vocab["[PACK_CARDS]"]
+        self.pack_cards_end_token_id= self.vocab["[PACK_CARDS_END]"]
+        self.pick_token_id          = self.vocab["[PICK]"]
+        self.pick_end_token_id      = self.vocab["[PICK_END]"]
+
+        # Dynamic context-token IDs ([PACK1]‥[PACK3] and [PICK_IN_PACK1]‥[PICK_IN_PACK14])
+        self.pack_ctx_ids       = {i: self.vocab[f"[PACK{i}]"] for i in range(1, 4)}
+        self.pick_in_pack_ids   = {j: self.vocab[f"[PICK_IN_PACK{j}]"] for j in range(1, 15)}
+
+        print("DraftModelHelper initialised (vocabulary size:", len(self.vocab), ")")
+
+    def _prepare_input_sequence(self, history: List[Tuple[List[str], str]], current_pack_cards: List[str]):
         """
-        Constructs the token ID sequence for the model.
+        Prepares the token sequence for the model.
         
-        Args:
-            picked_cards (list[str]): A list of card names already picked (with underscores).
-            pack_cards (list[str]): A list of card names in the current pack (with underscores).
-            
-        Returns:
-            np.array: A numpy array of token IDs with shape (1, max_seq_len).
+        history              : list[tuple[list[str], str]]
+                              Each entry is (pack_cards, picked_card) for *completed* picks.
+        current_pack_cards   : list[str] – the cards still in the pack you are about to pick from.
+        Returns tuple of (np.ndarray with shape (1, max_seq_len), int for pick_idx).
         """
-        # 1. Map card names to their token IDs
-        picked_ids = [self.vocab.get(c, self.pad_token_id) for c in picked_cards]
-        pack_ids = [self.vocab.get(c, self.pad_token_id) for c in pack_cards]
-        
-        # 2. Construct the sequence with special tokens
-        sequence = []
-        sequence.append(self.pick_cards_token_id)
-        sequence.extend(picked_ids)
-        sequence.append(self.pack_cards_token_id)
-        sequence.extend(pack_ids)
-        sequence.append(self.pack_cards_end_token_id)
-        
-        # 3. Pad the sequence to the model's required length
-        num_padding = self.max_seq_len - len(sequence)
-        if num_padding < 0:
-            raise ValueError(f"Input sequence is longer than model's max_seq_len. Sequence length: {len(sequence)}, max: {self.max_seq_len}")
-            
-        padded_sequence = sequence + [self.pad_token_id] * num_padding
-        
-        # 4. Reshape for the model (batch size of 1)
-        return np.array(padded_sequence, dtype=np.int64).reshape(1, -1)
+        tokens = []
+
+        # --- minimal draft-level prologue (expand as needed) ---
+        tokens.extend([
+            "[DRAFT_START]",
+            "[EXPANSION]", self.expansion_code, "[EXPANSION_END]",
+            "[EVENT_TYPE]", "PremierDraft", "[EVENT_TYPE_END]",
+            "[RANK]", "mythic", "7", "[RANK_END]",
+            "[DRAFT_TIME]", "<pad>", "<pad>", "[DRAFT_TIME_END]"
+        ])
+
+        # --- completed picks ---
+        for i, (pack_cards, picked_card) in enumerate(history):
+            pack_num        = i // 14 + 1          # 1-based pack number
+            pick_in_pack    = i % 14 + 1           # 1-based pick number inside the pack
+
+            tokens.append("[PACK_CARDS]")
+            tokens.extend(pack_cards)
+            tokens.append("[PACK_CARDS_END]")
+
+            tokens.append(f"[PACK{pack_num}]")
+            tokens.append(f"[PICK_IN_PACK{pick_in_pack}]")
+
+            tokens.extend(["[PICK]", picked_card, "[PICK_END]"])
+
+        # --- current (in-progress) pick ---
+        pack_num      = len(history) // 14 + 1
+        pick_in_pack  = len(history) % 14 + 1
+
+        tokens.append("[PACK_CARDS]")
+        tokens.extend(current_pack_cards)
+        tokens.append("[PACK_CARDS_END]")
+        tokens.append(f"[PACK{pack_num}]")
+        tokens.append(f"[PICK_IN_PACK{pick_in_pack}]")
+        tokens.append("[PICK]")           # logits will be taken from here
+        pick_idx = len(tokens) -1
+        tokens.append("<pad>")            # placeholder so indices line up
+
+        # --- turn tokens into IDs and pad ---
+        print("\n--- Tokens for Prediction ---")
+        print(" ".join(tokens))
+        print("--- End Tokens ---\n")
+        ids = []
+        for t in tokens:
+            token_name = t.replace(' ', '_')
+            token_id = self.vocab.get(token_name)
+            if token_id is None:
+                print(f"Warning: Token '{t}' (as '{token_name}') not found in vocabulary. Using pad token.")
+                token_id = self.pad_token_id
+            ids.append(token_id)
+        pad_needed = self.max_seq_len - len(ids)
+        if pad_needed < 0:
+            raise ValueError(f"Token sequence longer than model's max_seq_len ({self.max_seq_len}). Sequence length: {len(ids)}")
+        ids.extend([self.pad_token_id] * pad_needed)
+
+        return np.asarray(ids, dtype=np.int64).reshape(1, -1), pick_idx
 
     @staticmethod
     def _softmax(x: np.ndarray) -> np.ndarray:
@@ -443,27 +481,12 @@ class DraftModelWrapper:
         e_x = np.exp(x - np.max(x))
         return e_x / e_x.sum(axis=0)
 
-    def predict(self, picked_cards: List[str], pack_cards: List[str], current_pick_num: int) -> Dict[str, float]:
+    def predict(self, history: List[Tuple[List[str], str]], current_pack_cards: List[str]) -> Dict[str, float]:
         """
         Performs a full prediction for a given draft state.
-        
-        Args:
-            picked_cards (list[str]): Cards already picked.
-            pack_cards (list[str]): Cards in the current pack.
-            current_pick_num (int): The current pick number (0 for P1P1, 1 for P1P2, etc.)
-            
-        Returns:
-            dict[str, float]: A dict of {card_name: probability}.
         """
-        if current_pick_num >= len(self.pick_positions):
-            print(f"Warning: Invalid pick number {current_pick_num}. No recommendations will be provided.")
-            return {}
-
         # 1. Prepare the input tensor
-        picked_card_names_for_input = [c.replace(" ", "_") for c in picked_cards]
-        pack_card_names_for_input = [c.replace(" ", "_") for c in pack_cards]
-
-        input_tensor = self._prepare_input_sequence(picked_card_names_for_input, pack_card_names_for_input)
+        input_tensor, pick_token_idx = self._prepare_input_sequence(history, current_pack_cards)
         
         # 2. Run the ONNX model
         input_name = self.session.get_inputs()[0].name
@@ -473,10 +496,10 @@ class DraftModelWrapper:
         all_logits = result[0]
         
         # 3. Get the logits for the specific pick we are making
-        model_pick_index = self.pick_positions[current_pick_num]
-        pick_logits = all_logits[0, model_pick_index - 1, :]
+        pick_logits = all_logits[0, pick_token_idx, :]
         
         # 4. Create a mask for only the cards in the current pack
+        pack_card_names_for_input = [c.replace(" ", "_") for c in current_pack_cards]
         valid_card_ids = {self.vocab.get(c) for c in pack_card_names_for_input if c in self.vocab}
         full_vocab_size = len(self.vocab)
         mask = np.full(full_vocab_size, -np.inf, dtype=np.float32)
@@ -507,9 +530,12 @@ class MLRecommender:
 
         self.history = {}
     def reset(self):
+        """Reset draft state (tokens and pick/pack history) so the recommender can start a new draft."""
         self.tokens = []
+        self.history = {}
             
     def add_pack_history(self, pack_cards: List[int], pack: int, pick: int):
+        print(f"Adding pack history for {pack_cards}, {pack}, {pick}")
         p_p = (pack, pick)
         if p_p not in self.history:
             h = History()
@@ -522,6 +548,7 @@ class MLRecommender:
                 h.pack = pack_cards
                 
     def add_pick_history(self, card: int, pack: int, pick: int):
+        print(f"Adding pick history for {card}, {pack}, {pick}")
         p_p = (pack, pick)
         if p_p not in self.history:
             h = History()
@@ -533,58 +560,6 @@ class MLRecommender:
                 print(f"Updating card history for {p_p}")
                 h.pick = card
 
-    def pick_tokens(self, set_data: Dataset):
-        tokens = self._token_prefix()
-
-        for p_p in sorted(self.history.keys()):
-            h = self.history[p_p]
-            if not h.pack:
-                print(f"No pack history for {p_p}")
-                continue
-
-            tokens.append("[PACK_CARDS]")
-            pack_cards = [name.replace(" ", "_") for name in set_data.get_names_by_id(h.pack)]
-            tokens.extend(pack_cards)
-            tokens.append("[PACK_CARDS_END]")
-
-            tokens.append("[PICK]")
-            
-            if h.pick != -1:
-                pick_name = [name.replace(" ", "_") for name in set_data.get_names_by_id([h.pick])]
-                tokens.extend(pick_name)
-                tokens.append("[PICK_END]")
-
-        return tokens
-
-    def _token_prefix(self):
-        tokens = [
-            "[DRAFT_START]",
-            "[EXPANSION]", 
-            self.draft_model.expansion_code, # TODO: Get expansion code from current draft
-            "[EXPANSION_END]",
-            "[EVENT_TYPE]", "PremierDraft", "[EVENT_TYPE_END]",
-            "[RANK]", "mythic", "7", "[RANK_END]"
-        ]
-        
-        return tokens
-    
-    def _get_current_pack_cards(self, card_list: List[Dict]) -> List[str]:
-        return [card["name"].replace(" ", "_") for card in card_list]
-    
-    def compare_tokens(self, card_list: List[Dict]) -> List[str]:
-        tokens = self._token_prefix()
-        tokens.append("[PACK_CARDS]")
-        tokens.extend(card_list)
-        # Append basic lands until we reach the first pick
-        # -2 because we have the [PACK_CARDS_END] and [PICK] tokens
-        while len(tokens) < self.draft_model.pick_positions[0] -2:
-            tokens.append("Plains")
-
-        tokens.append("[PACK_CARDS_END]")
-        tokens.append("[PICK]")
-
-        return tokens
-    
     def recommend_deck(self, card_list: List[Dict], basic_lands: Dict[str, Dict], make_land_card: Callable[[str, Dict[str, Dict], int], Dict]) -> List[Dict]:
         # Create a lookup that handles both spaced and underscore variants of card names
         card_map = {}
@@ -609,27 +584,29 @@ class MLRecommender:
         if not card_list:
             return []
 
-        # Construct picked_cards list from history
-        picked_cards = []
+        # If the draft is complete (42 picks made), return no recommendations
+        if len(self.history) >= 42:
+            return {}
+
+        # Build the history object for the model
+        model_history = []
         if self.history:
             sorted_picks = sorted(self.history.keys())
             for p_p in sorted_picks:
                 h = self.history[p_p]
-                if h.pick != -1:
-                    picked_card_name = set_data.get_names_by_id([h.pick])[0]
-                    picked_cards.append(picked_card_name)
+                if h.pick != -1 and h.pack:
+                    pack_names = set_data.get_names_by_id(h.pack)
+                    pick_name = set_data.get_names_by_id([h.pick])[0]
+                    model_history.append((pack_names, pick_name))
 
-        current_pick_num = len(picked_cards)
-        
         # The card_list is a list of dicts, where each dict is a card.
         # We need to extract the name from each card.
         pack_cards = [card["name"] for card in card_list]
-
+        
         # Get model predictions
         predictions = self.draft_model.predict(
-            picked_cards=picked_cards,
-            pack_cards=pack_cards,
-            current_pick_num=current_pick_num
+            history=model_history,
+            current_pack_cards=pack_cards,
         )
                 
         return predictions 
@@ -683,6 +660,9 @@ if __name__ == '__main__':
         print(f"\nSimulating pick: {p1p1_actual_pick}")
         
         # To add to history, we need the card ID. We'll look it up from the test data.
+        p1p1_pack_names = [card['name'] for card in p1p1_pack_cards]
+        p1p1_pack_ids = [int(id_str) for id_str in set_data.get_ids_by_name(p1p1_pack_names)]
+        recommender.add_pack_history(pack_cards=p1p1_pack_ids, pack=1, pick=1)
         best_pick_id = set_data.get_ids_by_name([p1p1_actual_pick])[0]
         recommender.add_pick_history(card=int(best_pick_id), pack=1, pick=1)
     else:
@@ -728,20 +708,39 @@ if __name__ == '__main__':
         print("Simulating first 41 picks...")
         for i in range(41):
             pick_data = picks_data[i]
-            actual_pick_name = pick_data.get("pick", {}).get("name")
-            if not actual_pick_name:
-                print(f"Warning: Missing pick name for pick {i + 1}. Skipping this history entry.")
-                continue
-            
-            pick_id_list = set_data.get_ids_by_name([actual_pick_name])
-            if not pick_id_list:
-                print(f"Warning: Could not find ID for card '{actual_pick_name}' at pick {i + 1}. Skipping.")
-                continue
-                
-            pick_id = pick_id_list[0]
             pack_num = (i // 14) + 1
             pick_num_in_pack = (i % 14) + 1
-            recommender.add_pick_history(card=int(pick_id), pack=pack_num, pick=pick_num_in_pack)
+
+            # Add pack history
+            pack_cards = pick_data.get("available", [])
+            if pack_cards:
+                pack_card_names = [card['name'] for card in pack_cards]
+                pack_card_ids_str = set_data.get_ids_by_name(pack_card_names)
+                if len(pack_card_ids_str) != len(pack_card_names):
+                    print(f"Warning: Could not find IDs for all cards in pack for pick {i + 1}.")
+                    found_card_names = set(set_data.get_names_by_id(pack_card_ids_str))
+                    missing_names = [name for name in pack_card_names if name not in found_card_names]
+                    print(f"  Missing cards: {missing_names}")
+
+                if len(pack_card_ids_str) == len(pack_card_names):
+                    pack_card_ids = [int(id_str) for id_str in pack_card_ids_str]
+                    recommender.add_pack_history(pack_cards=pack_card_ids, pack=pack_num, pick=pick_num_in_pack)
+                else:
+                    # Even if some are missing, we can proceed with the ones we found
+                    # to make the simulation more robust.
+                    pack_card_ids = [int(id_str) for id_str in pack_card_ids_str if id_str]
+                    if pack_card_ids:
+                         recommender.add_pack_history(pack_cards=pack_card_ids, pack=pack_num, pick=pick_num_in_pack)
+
+            # Add pick history
+            actual_pick_name = pick_data.get("pick", {}).get("name")
+            if actual_pick_name:
+                pick_id_list = set_data.get_ids_by_name([actual_pick_name])
+                if pick_id_list:
+                    pick_id = pick_id_list[0]
+                    recommender.add_pick_history(card=int(pick_id), pack=pack_num, pick=pick_num_in_pack)
+                else:
+                    print(f"Warning: Could not find ID for card '{actual_pick_name}' at pick {i + 1}.")
         
         print("Simulated 41 picks successfully.")
 
@@ -764,6 +763,9 @@ if __name__ == '__main__':
                 print(f"{i+1}: {card:<40} (Confidence: {prob:.2%})")
             
             # Add the final pick to history
+            p3p14_pack_names = [card['name'] for card in p3p14_pack_cards]
+            p3p14_pack_ids = [int(id_str) for id_str in set_data.get_ids_by_name(p3p14_pack_names)]
+            recommender.add_pack_history(pack_cards=p3p14_pack_ids, pack=3, pick=14)
             last_pick_id = set_data.get_ids_by_name([p3p14_actual_pick])[0]
             recommender.add_pick_history(card=int(last_pick_id), pack=3, pick=14)
 
